@@ -39,7 +39,7 @@ export default function TravelApp({user}:{user:{id:string,name:string}|null}){
   for(let i=0;i<route.stops.length-1;i++){const a=data.places.find(p=>p.id===route.stops[i])!,b=data.places.find(p=>p.id===route.stops[i+1])!,key=i.toString();try{const r=await fetch('/api/maps?'+new URLSearchParams({action:'route',origin:`${a.lng},${a.lat}`,destination:`${b.lng},${b.lat}`,mode:route.modes[key]||'walking'}));const v:any=await r.json();if(!r.ok)throw Error(v.error);answers[key]=v}catch(e){answers[key]={distance:0,duration:0,lines:[],instructions:[],error:e instanceof Error?e.message:'此段未获取到路线'}}}
   if(request===routeRequest.current){setRouteResults(answers);setCalculating(false);control.current?.fit(route.stops.map(id=>data.places.find(p=>p.id===id)!))}
  }
- function locate(callback?:(p:GeolocationPosition)=>void,automatic=false){if(!navigator.geolocation){toast('浏览器不支持定位');return}navigator.geolocation.getCurrentPosition(p=>{locationRef.current=[p.coords.longitude,p.coords.latitude];if(!automatic||!folderRef.current)control.current?.focus(...locationRef.current);callback?.(p)},()=>toast('未获取到位置，已保留地图视野。可点击定位重试，或手动搜索地点'),{enableHighAccuracy:true,timeout:12000})}
+ function locate(callback?:(p:GeolocationPosition)=>void,automatic=false){if(!navigator.geolocation){toast('浏览器不支持定位');return}navigator.geolocation.getCurrentPosition(p=>{locationRef.current=[p.coords.longitude,p.coords.latitude];const currentFolder=snapshot.current.folders.find(f=>f.id===folderRef.current);if(!automatic||!currentFolder?.placeIds.length)control.current?.focus(...locationRef.current);callback?.(p)},()=>toast('未获取到位置，已保留地图视野。可点击定位重试，或手动搜索地点'),{enableHighAccuracy:true,timeout:12000})}
  async function fromHere(p:Place){locate(async pos=>{try{setCalculating(true);const r=await fetch('/api/maps?'+new URLSearchParams({action:'route',origin:`${pos.coords.longitude},${pos.coords.latitude}`,destination:`${p.lng},${p.lat}`,mode:'walking'}));const v:any=await r.json();if(!r.ok)throw Error(v.error);setDirect(v);setModal('direct')}catch(e){toast(e instanceof Error?e.message:'查询失败')}finally{setCalculating(false)}})}
  function backup(){const blob=new Blob([JSON.stringify({version:2,exportedAt:new Date().toISOString(),data},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='随行备份-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
  async function importFile(f:File){if(f.size>1500000){toast('文件不能超过 1.5 MB');return}try{const v=JSON.parse(await f.text()),parsed=stateSchema.safeParse(v.data);if(!parsed.success)throw Error();if(!confirm('导入将替换当前账号中的全部收藏夹和路线。建议先导出备份，确定继续？'))return;if(await mutate(d=>Object.assign(d,parsed.data))){setFolderId('');setRouteId('');toast('备份已恢复')}}catch{toast('备份格式无效，请选择随行导出的 JSON 文件')}}
@@ -90,5 +90,6 @@ export default function TravelApp({user}:{user:{id:string,name:string}|null}){
  </main>
  ;
 }
+
 
 

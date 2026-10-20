@@ -1,45 +1,72 @@
 'use client';
-import { useEffect,useRef,useState } from 'react';
-import { gcj, type Place,type State } from '../lib/travel';
+import {useEffect,useRef,useState} from 'react';
+import {gcj,type Place,type State} from '../lib/travel';
+import {visibleLabels} from '../lib/map-labels';
 declare global {interface Window{L:any;AMap:any;_AMapSecurityConfig:any}}
-export type MapControl={focus:(lng:number,lat:number)=>void;zoom:(d:number)=>void;center:()=>[number,number]};
+export type MapControl={focus:(lng:number,lat:number)=>void;zoom:(d:number)=>void;center:()=>[number,number];fit:(places:Place[])=>void};
 function script(src:string){return new Promise<void>((resolve,reject)=>{const s=document.createElement('script');s.src=src;s.onload=()=>resolve();s.onerror=reject;document.head.appendChild(s)})}
-export default function MapView({places,categories,lines,onPick,onSelect,onReady,onNotice}:{places:Place[],categories:State['categories'],lines:number[][][],onPick:(lng:number,lat:number)=>void,onSelect:(id:string)=>void,onReady:(m:MapControl)=>void,onNotice:(s:string)=>void}){
- const el=useRef<HTMLDivElement>(null),map=useRef<any>(null),kind=useRef(''),layers=useRef<any[]>([]),callbacks=useRef({onPick,onSelect,onReady,onNotice}),[ready,setReady]=useState(false);callbacks.current={onPick,onSelect,onReady,onNotice};
- useEffect(()=>{let disposed=false;
- (async()=>{let cfg={jsKey:''};try{const r=await fetch('/api/maps?action=config');cfg=await r.json()}catch{}
- if(disposed)return;
- if(cfg.jsKey){
-  window._AMapSecurityConfig={serviceHost:location.origin+'/_AMapService'};
-  await script('https://webapi.amap.com/maps?v=2.0&key='+encodeURIComponent(cfg.jsKey));if(disposed)return;
-  const a=window.AMap,m=new a.Map(el.current,{zoom:12,center:gcj(120.1551,30.2741),viewMode:'2D'});map.current=m;kind.current='amap';
-  m.on('rightclick',(e:any)=>{const p=gcj(e.lnglat.lng,e.lnglat.lat,true);callbacks.current.onPick(...p)});
-  callbacks.current.onReady({focus:(lng,lat)=>m.setZoomAndCenter(15,gcj(lng,lat)),zoom:d=>m.setZoom(m.getZoom()+d),center:()=>{const p=m.getCenter();return gcj(p.lng,p.lat,true)}});
- }else{
-  const css=document.createElement('link');css.rel='stylesheet';css.href='/vendor/leaflet.css';document.head.appendChild(css);
-  if(!window.L)await script('/vendor/leaflet.js');if(disposed)return;
-  const L=window.L,m=L.map(el.current,{zoomControl:false,attributionControl:true}).setView([30.2741,120.1551],12);map.current=m;kind.current='leaflet';
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(m).on('tileerror',()=>callbacks.current.onNotice('底图暂时加载失败，已保存的地点仍可在列表查看。'));
-  m.on('contextmenu',(e:any)=>callbacks.current.onPick(e.latlng.lng,e.latlng.lat));
-  callbacks.current.onReady({focus:(lng,lat)=>m.setView([lat,lng],15),zoom:d=>m.setZoom(m.getZoom()+d),center:()=>{const p=m.getCenter();return [p.lng,p.lat]}});
- }
- // Explicit pointer long press works on iOS; movement cancels selection.
- let timer:ReturnType<typeof setTimeout>|undefined,start:[number,number]|null=null;
- const down=(e:PointerEvent)=>{if(e.button!==0||(e.target as HTMLElement).closest('.leaflet-marker-icon,.amap-marker'))return;start=[e.clientX,e.clientY];clearTimeout(timer);timer=setTimeout(()=>{if(!start)return;const rect=el.current!.getBoundingClientRect();if(kind.current==='leaflet'){const p=map.current.containerPointToLatLng([start[0]-rect.left,start[1]-rect.top]);callbacks.current.onPick(p.lng,p.lat)}else{const p=map.current.containerToLngLat(new window.AMap.Pixel(start[0]-rect.left,start[1]-rect.top));callbacks.current.onPick(...gcj(p.lng,p.lat,true))}start=null},650)};
- const move=(e:PointerEvent)=>{if(start&&Math.hypot(e.clientX-start[0],e.clientY-start[1])>8){clearTimeout(timer);start=null}};
- const cancel=()=>{clearTimeout(timer);start=null};const node=el.current!;node.addEventListener('pointerdown',down);node.addEventListener('pointermove',move);node.addEventListener('pointerup',cancel);node.addEventListener('pointercancel',cancel);
- map.current._cleanup=()=>{cancel();node.removeEventListener('pointerdown',down);node.removeEventListener('pointermove',move);node.removeEventListener('pointerup',cancel);node.removeEventListener('pointercancel',cancel)};
- setReady(true);
+export default function MapView({places,categories,lines,allowPick,selectedId,onPick,onSelect,onReady,onNotice}:{places:Place[],categories:State['categories'],lines:number[][][],allowPick:boolean,selectedId:string,onPick:(lng:number,lat:number)=>void,onSelect:(id:string)=>void,onReady:(m:MapControl)=>void,onNotice:(s:string)=>void}){
+ const el=useRef<HTMLDivElement>(null),map=useRef<any>(null),kind=useRef(''),layers=useRef<any[]>([]),callbacks=useRef({onPick,onSelect,onReady,onNotice,allowPick}),[ready,setReady]=useState(false);
+ callbacks.current={onPick,onSelect,onReady,onNotice,allowPick};
+ useEffect(()=>{let disposed=false;let cleanup=()=>{};
+ (async()=>{
+  let cfg={jsKey:''};try{cfg=await fetch('/api/maps?action=config').then(r=>r.json())}catch{}
+  if(disposed)return;
+  let view={lng:120.1551,lat:30.2741,zoom:12};
+  try{const v=JSON.parse(localStorage.getItem('suixing-map-view')||'null');if(v&&Number.isFinite(v.lng)&&Math.abs(v.lng)<=180&&Number.isFinite(v.lat)&&Math.abs(v.lat)<=85&&Number.isFinite(v.zoom)&&v.zoom>=3&&v.zoom<=19)view=v}catch{}
+  let m:any,center:()=>[number,number],focus:(lng:number,lat:number)=>void,fit:(ps:Place[])=>void;
+  const padding=()=>window.innerWidth<=650?[200,65,Math.min(innerHeight*.58+110,innerHeight-260),45]:[190,85,130,450];
+  if(cfg.jsKey){
+   window._AMapSecurityConfig={serviceHost:location.origin+'/_AMapService'};
+   if(!window.AMap)await script('https://webapi.amap.com/maps?v=2.0&key='+encodeURIComponent(cfg.jsKey));if(disposed)return;
+   const a=window.AMap;m=new a.Map(el.current,{zoom:view.zoom,center:gcj(view.lng,view.lat),viewMode:'2D'});kind.current='amap';
+   center=()=>{const p=m.getCenter();return gcj(p.lng,p.lat,true)};
+   focus=(lng,lat)=>m.setZoomAndCenter(15,gcj(lng,lat));
+   fit=ps=>{if(!ps.length)return;const coords=ps.map(p=>gcj(p.lng,p.lat)),xs=coords.map(p=>p[0]),ys=coords.map(p=>p[1]);const bounds=new a.Bounds([Math.min(...xs)-.0003,Math.min(...ys)-.0003],[Math.max(...xs)+.0003,Math.max(...ys)+.0003]),p=padding();m.setBounds(bounds,false,[p[0],p[2],p[3],p[1]])};
+   m.on('rightclick',(e:any)=>{if(callbacks.current.allowPick)callbacks.current.onPick(...gcj(e.lnglat.lng,e.lnglat.lat,true))});
+  }else{
+   const css=document.createElement('link');css.rel='stylesheet';css.href='/vendor/leaflet.css';document.head.appendChild(css);
+   if(!window.L)await script('/vendor/leaflet.js');if(disposed)return;
+   const L=window.L;m=L.map(el.current,{zoomControl:false,attributionControl:true}).setView([view.lat,view.lng],view.zoom);kind.current='leaflet';
+   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(m).on('tileerror',()=>callbacks.current.onNotice('底图暂时加载失败，已保存的地点仍可在列表查看。'));
+   center=()=>{const p=m.getCenter();return [p.lng,p.lat]};focus=(lng,lat)=>m.setView([lat,lng],15);
+   fit=ps=>{if(!ps.length)return;const p=padding();m.fitBounds(ps.map(v=>[v.lat,v.lng]),{paddingTopLeft:[p[3],p[0]],paddingBottomRight:[p[1],p[2]],maxZoom:15})};
+   m.on('contextmenu',(e:any)=>{if(callbacks.current.allowPick)callbacks.current.onPick(e.latlng.lng,e.latlng.lat)});
+  }
+  map.current=m;
+  const remember=()=>{try{const [lng,lat]=center();localStorage.setItem('suixing-map-view',JSON.stringify({lng,lat,zoom:m.getZoom()}))}catch{}};
+  m.on('moveend',remember);m.on('zoomend',remember);
+  let timer:ReturnType<typeof setTimeout>|undefined,start:[number,number]|null=null;
+  const cancel=()=>{clearTimeout(timer);start=null};
+  const down=(e:PointerEvent)=>{if(!callbacks.current.allowPick||e.button!==0||(e.target as HTMLElement).closest('.leaflet-marker-icon,.amap-marker'))return;start=[e.clientX,e.clientY];clearTimeout(timer);timer=setTimeout(()=>{if(!start||!callbacks.current.allowPick)return;const rect=el.current!.getBoundingClientRect();if(kind.current==='leaflet'){const p=m.containerPointToLatLng([start[0]-rect.left,start[1]-rect.top]);callbacks.current.onPick(p.lng,p.lat)}else{const p=m.containerToLngLat(new window.AMap.Pixel(start[0]-rect.left,start[1]-rect.top));callbacks.current.onPick(...gcj(p.lng,p.lat,true))}cancel()},650)};
+  const move=(e:PointerEvent)=>{if(start&&Math.hypot(e.clientX-start[0],e.clientY-start[1])>8)cancel()};
+  const node=el.current!;node.addEventListener('pointerdown',down);node.addEventListener('pointermove',move);node.addEventListener('pointerup',cancel);node.addEventListener('pointercancel',cancel);
+  cleanup=()=>{cancel();node.removeEventListener('pointerdown',down);node.removeEventListener('pointermove',move);node.removeEventListener('pointerup',cancel);node.removeEventListener('pointercancel',cancel);m.off('moveend',remember);m.off('zoomend',remember)};
+  setReady(true);callbacks.current.onReady({focus,center,fit,zoom:d=>m.setZoom(m.getZoom()+d)});
  })().catch(()=>callbacks.current.onNotice('地图加载失败。请检查网络，或使用地点列表继续查看。'));
- return()=>{disposed=true;map.current?._cleanup?.();map.current?.remove?.();map.current?.destroy?.()};
+ return()=>{disposed=true;cleanup();if(kind.current==='leaflet')map.current?.remove();else map.current?.destroy()};
  },[]);
- useEffect(()=>{if(!ready)return;const m=map.current;
- layers.current.forEach(l=>kind.current==='leaflet'?l.remove():m.remove(l));layers.current=[];
- const add=(l:any)=>{kind.current==='leaflet'?l.addTo(m):m.add(l);layers.current.push(l)};
- places.forEach(p=>{const c=categories.find(c=>c.id===p.category)||categories[0],content=document.createElement('button');content.className='map-marker';content.style.background=c.color;content.textContent=c.icon;content.title=p.name;content.setAttribute('aria-label',p.name);
- let marker;if(kind.current==='leaflet'){marker=window.L.marker([p.lat,p.lng],{icon:window.L.divIcon({html:content,iconSize:[36,42],iconAnchor:[18,42],className:'marker-wrap'})});marker.on('click',()=>callbacks.current.onSelect(p.id))}else{marker=new window.AMap.Marker({position:gcj(p.lng,p.lat),content,anchor:'bottom-center'});marker.on('click',()=>callbacks.current.onSelect(p.id))}add(marker)});
- lines.forEach(line=>{if(line.length<2)return;add(kind.current==='leaflet'?window.L.polyline(line.map(p=>[p[1],p[0]]),{color:'#337c65',weight:5,opacity:.8}):new window.AMap.Polyline({path:line.map(p=>gcj(p[0],p[1])),strokeColor:'#337c65',strokeWeight:5}))});
- },[places,categories,lines,ready]);
+ useEffect(()=>{
+  if(!ready)return;const m=map.current;
+  layers.current.forEach(l=>kind.current==='leaflet'?l.remove():m.remove(l));layers.current=[];
+  const add=(l:any)=>{kind.current==='leaflet'?l.addTo(m):m.add(l);layers.current.push(l)};
+  const labels:{p:Place,label:HTMLSpanElement,width:number}[]=[];
+  places.forEach(p=>{
+   const c=categories.find(c=>c.id===p.category)||categories[0],content=document.createElement('button'),icon=document.createElement('span'),label=document.createElement('span');
+   content.className='map-marker'+(p.id===selectedId?' selected':'');content.title=p.name;content.setAttribute('aria-label',p.name);
+   icon.className='marker-icon';icon.style.background=c.color;icon.textContent=c.icon;label.className='marker-label';label.textContent=p.name;content.appendChild(icon);content.appendChild(label);
+   let marker:any;
+   if(kind.current==='leaflet'){marker=window.L.marker([p.lat,p.lng],{icon:window.L.divIcon({html:content,iconSize:[26,26],iconAnchor:[13,13],className:'marker-wrap'}),zIndexOffset:p.id===selectedId?1000:0});marker.on('click',()=>callbacks.current.onSelect(p.id))}
+   else{marker=new window.AMap.Marker({position:gcj(p.lng,p.lat),content,offset:new window.AMap.Pixel(-13,-13),zIndex:p.id===selectedId?200:100});marker.on('click',()=>callbacks.current.onSelect(p.id))}
+   add(marker);labels.push({p,label,width:Math.min(128,Math.max(35,label.getBoundingClientRect().width||p.name.length*12+12))});
+  });
+  const layout=()=>{
+   const rect=el.current!.getBoundingClientRect(),items=labels.map(({p,width})=>{const xy=kind.current==='leaflet'?m.latLngToContainerPoint([p.lat,p.lng]):m.lngLatToContainer(gcj(p.lng,p.lat));return {id:p.id,x:xy.x,y:xy.y,width}});
+   const shown=visibleLabels(items,selectedId,rect.width,rect.height);labels.forEach(({p,label})=>label.classList.toggle('label-hidden',!shown.has(p.id)));
+  };
+  lines.forEach(line=>{if(line.length<2)return;add(kind.current==='leaflet'?window.L.polyline(line.map(p=>[p[1],p[0]]),{color:'#337c65',weight:5,opacity:.8}):new window.AMap.Polyline({path:line.map(p=>gcj(p[0],p[1])),strokeColor:'#337c65',strokeWeight:5}))});
+  layout();m.on('moveend',layout);m.on('zoomend',layout);m.on('resize',layout);
+  return()=>{m.off('moveend',layout);m.off('zoomend',layout);m.off('resize',layout)};
+ },[places,categories,lines,ready,selectedId]);
  return <div className="map" ref={el} aria-label="互动地图"/>;
 }
-

@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {initial,stateSchema,removeFromFolder,prunePlaces} from '../lib/travel.ts';
+import {visibleLabels} from '../lib/map-labels.ts';
+const s=structuredClone(initial);
+s.places=[{id:'a',name:'我的西湖',originalName:'西湖',lng:120.14,lat:30.24,category:'sight',tags:'',note:'',url:'',visited:false},{id:'b',name:'断桥',originalName:'断桥',lng:120.15,lat:30.25,category:'sight',tags:'',note:'',url:'',visited:false}];
+const route=id=>({id,name:'自由路线',date:'',stops:['a','b','a'],modes:{0:'bicycling',1:'transit'},note:''});
+s.folders=[{id:'hz',name:'杭州',placeIds:['a','b'],routes:[route('day1'),route('rain')]},{id:'cz',name:'常州',placeIds:['a','b'],routes:[route('other')]}];
+assert(stateSchema.safeParse(s).success);
+s.places[0].name='看日落的地方';assert.equal(s.folders.map(f=>s.places.find(p=>p.id===f.placeIds[0]).name).join('|'),'看日落的地方|看日落的地方');
+removeFromFolder(s,'hz','a');assert.deepEqual(s.folders[0].routes[0].stops,['b']);assert.deepEqual(s.folders[1].routes[0].stops,['a','b','a']);assert(s.places.some(p=>p.id==='a'));
+removeFromFolder(s,'cz','a');assert(!s.places.some(p=>p.id==='a'));assert(stateSchema.safeParse(s).success);
+s.folders=[];prunePlaces(s);assert.deepEqual(s.places,[]);
+assert(!stateSchema.safeParse({...initial,schemaVersion:1}).success);
+assert(!stateSchema.safeParse({...initial,folders:[{id:'f',name:'x',placeIds:['missing'],routes:[]}]}).success);
+const labels=[{id:'a',x:100,y:100,width:80},{id:'b',x:110,y:100,width:80},{id:'c',x:300,y:100,width:60},{id:'off',x:-5,y:100,width:60}];
+assert.deepEqual([...visibleLabels(labels,'b',400,300)],['b','c']);assert.deepEqual([...visibleLabels(labels,'',400,300)],['a','c']);
+assert.equal(visibleLabels(labels.map((v,i)=>({...v,x:60+i*110})),'',500,300).size,4);
+console.log('PASS: v2 schema, shared edits, folder/route independence, orphan cleanup, repeat stops, legacy rejection, label collision/selection/zoom spacing');

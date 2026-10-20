@@ -1,10 +1,17 @@
 import { getChatGPTUser } from '../../chatgpt-auth';
 import { env } from 'cloudflare:workers';
-import { stateSchema } from '../../../lib/travel';
+import { initial,stateSchema } from '../../../lib/travel';
 export async function GET(){
  const user=await getChatGPTUser();if(!user)return Response.json({error:'请先登录'},{status:401});
- const row=await env.DB!.prepare('SELECT payload,revision FROM travel_states WHERE user_id=?').bind(user.userId).first<{payload:string,revision:number}>();
- return Response.json({data:row?JSON.parse(row.payload):null,revision:row?.revision??0},{headers:{'Cache-Control':'no-store'}});
+ let row=await env.DB!.prepare('SELECT payload,revision FROM travel_states WHERE user_id=?').bind(user.userId).first<{payload:string,revision:number}>();
+ let data=row?JSON.parse(row.payload):null;
+ // The owner explicitly chose to discard the old experimental schema. CAS
+ // prevents this first-visit reset from overwriting another device's v2 save.
+ if(row&&data?.schemaVersion!==2){
+  await env.DB!.prepare('UPDATE travel_states SET payload=?,revision=revision+1 WHERE user_id=? AND revision=?').bind(JSON.stringify(initial),user.userId,row.revision).run();
+  row=await env.DB!.prepare('SELECT payload,revision FROM travel_states WHERE user_id=?').bind(user.userId).first<{payload:string,revision:number}>();data=row?JSON.parse(row.payload):null;
+ }
+ return Response.json({data,revision:row?.revision??0},{headers:{'Cache-Control':'no-store'}});
 }
 export async function POST(request:Request){
  const user=await getChatGPTUser();if(!user)return Response.json({error:'请先登录'},{status:401});

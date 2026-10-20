@@ -56,6 +56,11 @@ next-env.d.ts
 /outputs/
 /work/
 
+# Local Worker secrets and generated TypeScript state
+.dev.vars*
+!.dev.vars.example
+*.tsbuildinfo
+
 # Local secrets and generated TypeScript state
 .dev.vars*
 !.dev.vars.example

@@ -1,16 +1,18 @@
 import { z } from 'zod';
 const id=z.string().min(1).max(100);
-export const placeSchema=z.object({id,name:z.string().min(1).max(120),lng:z.number().min(-180).max(180),lat:z.number().min(-85).max(85),category:id,tags:z.string().max(500),note:z.string().max(5000),url:z.string().max(2000).refine(v=>!v||/^https?:\/\//i.test(v)),visited:z.boolean(),saved:z.boolean()});
+export const placeSchema=z.object({id,name:z.string().trim().min(1).max(120),originalName:z.string().max(120),lng:z.number().min(-180).max(180),lat:z.number().min(-85).max(85),category:id,tags:z.string().max(500),note:z.string().max(5000),url:z.string().max(2000).refine(v=>!v||/^https?:\/\//i.test(v)),visited:z.boolean()});
 const route=z.object({id,name:z.string().min(1).max(100),date:z.string().max(20),stops:z.array(id).max(100),modes:z.record(z.enum(['walking','bicycling','driving','transit'])),note:z.string().max(5000)});
-export const stateSchema=z.object({categories:z.array(z.object({id,name:z.string().min(1).max(40),icon:z.string().max(8),color:z.string().regex(/^#[0-9a-f]{6}$/i)})).min(1).max(100),places:z.array(placeSchema).max(5000),trips:z.array(z.object({id,name:z.string().min(1).max(100),placeIds:z.array(id).max(1000),routes:z.array(route).max(100)})).max(200)}).superRefine((s,c)=>{
+export const stateSchema=z.object({schemaVersion:z.literal(2),categories:z.array(z.object({id,name:z.string().trim().min(1).max(40),icon:z.string().min(1).max(8),color:z.string().regex(/^#[0-9a-f]{6}$/i)})).min(1).max(100),places:z.array(placeSchema).max(5000),folders:z.array(z.object({id,name:z.string().trim().min(1).max(100),placeIds:z.array(id).max(1000),routes:z.array(route).max(100)})).max(200)}).superRefine((s,c)=>{
  const p=new Set(s.places.map(v=>v.id)),cats=new Set(s.categories.map(v=>v.id)),unique=(a:string[])=>new Set(a).size===a.length;
- if(!unique(s.places.map(v=>v.id))||!unique(s.categories.map(v=>v.id))||!unique(s.trips.map(v=>v.id))||s.places.some(v=>!cats.has(v.category))||s.trips.some(t=>!unique(t.placeIds)||t.placeIds.some(v=>!p.has(v))||!unique(t.routes.map(r=>r.id))||t.routes.some(r=>r.stops.some(v=>!t.placeIds.includes(v)))))c.addIssue({code:z.ZodIssueCode.custom,message:'地点关联无效'});
+ if(!unique(s.places.map(v=>v.id))||!unique(s.categories.map(v=>v.id))||!unique(s.folders.map(v=>v.id))||s.places.some(v=>!cats.has(v.category)||!s.folders.some(f=>f.placeIds.includes(v.id)))||s.folders.some(t=>!unique(t.placeIds)||t.placeIds.some(v=>!p.has(v))||!unique(t.routes.map(r=>r.id))||t.routes.some(r=>r.stops.some(v=>!t.placeIds.includes(v)))))c.addIssue({code:z.ZodIssueCode.custom,message:'地点关联无效'});
 });
 export type State=z.infer<typeof stateSchema>;
 export type Place=State['places'][number];
-export type Trip=State['trips'][number];
-export type Route=Trip['routes'][number];
-export const initial:State={categories:[{id:'sight',name:'景点',icon:'✦',color:'#d57d50'},{id:'stay',name:'住宿',icon:'⌂',color:'#698ac0'},{id:'food',name:'餐饮',icon:'♨',color:'#c69b45'},{id:'transport',name:'交通',icon:'↗',color:'#688e7d'},{id:'school',name:'学校',icon:'▥',color:'#9784ae'}],places:[],trips:[]};
+export type Folder=State['folders'][number];
+export type Route=Folder['routes'][number];
+export const initial:State={schemaVersion:2,categories:[{id:'sight',name:'景点',icon:'✦',color:'#d57d50'},{id:'stay',name:'住宿',icon:'⌂',color:'#698ac0'},{id:'food',name:'餐饮',icon:'♨',color:'#c69b45'},{id:'transport',name:'交通',icon:'↗',color:'#688e7d'},{id:'school',name:'学校',icon:'▥',color:'#9784ae'}],places:[],folders:[]};
+export function prunePlaces(s:State){s.places=s.places.filter(p=>s.folders.some(f=>f.placeIds.includes(p.id)))}
+export function removeFromFolder(s:State,folderId:string,placeId:string){const f=s.folders.find(f=>f.id===folderId);if(!f)return;f.placeIds=f.placeIds.filter(id=>id!==placeId);f.routes.forEach(r=>{r.stops=r.stops.filter(id=>id!==placeId);r.modes={}});prunePlaces(s)}
 export const modes={walking:'步行',bicycling:'骑行',driving:'驾车',transit:'公交 / 地铁'};
 export const uid=()=>crypto.randomUUID();
 export function gcj(lng:number,lat:number,inverse=false):[number,number]{

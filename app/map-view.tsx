@@ -6,9 +6,9 @@ import type {LocationFix} from '../lib/device-location';
 declare global {interface Window{L:any;AMap:any;_AMapSecurityConfig:any}}
 export type MapControl={focus:(lng:number,lat:number)=>void;zoom:(d:number)=>void;center:()=>[number,number];fit:(places:Place[])=>void};
 function script(src:string){return new Promise<void>((resolve,reject)=>{const s=document.createElement('script');s.src=src;s.onload=()=>resolve();s.onerror=reject;document.head.appendChild(s)})}
-export default function MapView({places,categories,lines,allowPick,selectedId,position,heading,searchPin,onPick,onSelect,onReady,onNotice,onInteract}:{places:Place[],categories:State['categories'],lines:number[][][],allowPick:boolean,selectedId:string,position:LocationFix|null,heading:number|null,searchPin:{name:string,lng:number,lat:number}|null,onPick:(lng:number,lat:number)=>void,onSelect:(id:string)=>void,onReady:(m:MapControl)=>void,onNotice:(s:string)=>void,onInteract:()=>void}){
- const el=useRef<HTMLDivElement>(null),map=useRef<any>(null),kind=useRef(''),layers=useRef<any[]>([]),callbacks=useRef({onPick,onSelect,onReady,onNotice,allowPick,onInteract}),[ready,setReady]=useState(false),userMarker=useRef<any>(null),userArrow=useRef<HTMLElement|null>(null);
- callbacks.current={onPick,onSelect,onReady,onNotice,allowPick,onInteract};
+export default function MapView({places,categories,lines,allowPick,selectedId,position,heading,searchPin,onPick,onSelect,onReady,onNotice,onInteract,layout='map'}:{places:Place[],categories:State['categories'],lines:number[][][],allowPick:boolean,selectedId:string,position:LocationFix|null,heading:number|null,searchPin:{name:string,lng:number,lat:number}|null,onPick:(lng:number,lat:number)=>void,onSelect:(id:string)=>void,onReady:(m:MapControl)=>void,onNotice:(s:string)=>void,onInteract:()=>void,layout?:'map'|'sheet'|'workspace'}){
+ const el=useRef<HTMLDivElement>(null),map=useRef<any>(null),kind=useRef(''),layers=useRef<any[]>([]),callbacks=useRef({onPick,onSelect,onReady,onNotice,allowPick,onInteract,layout}),[ready,setReady]=useState(false),userMarker=useRef<any>(null),userArrow=useRef<HTMLElement|null>(null);
+ callbacks.current={onPick,onSelect,onReady,onNotice,allowPick,onInteract,layout};
  useEffect(()=>{let disposed=false;let cleanup=()=>{};
  (async()=>{
   let cfg={jsKey:''};try{cfg=await fetch('/api/maps?action=config').then(r=>r.json())}catch{}
@@ -16,7 +16,7 @@ export default function MapView({places,categories,lines,allowPick,selectedId,po
   let view={lng:120.1551,lat:30.2741,zoom:12};
   try{const v=JSON.parse(localStorage.getItem('suixing-map-view')||'null');if(v&&Number.isFinite(v.lng)&&Math.abs(v.lng)<=180&&Number.isFinite(v.lat)&&Math.abs(v.lat)<=85&&Number.isFinite(v.zoom)&&v.zoom>=3&&v.zoom<=19)view=v}catch{}
   let m:any,center:()=>[number,number],focus:(lng:number,lat:number)=>void,fit:(ps:Place[])=>void;
-  const padding=()=>window.innerWidth<=650?[115,65,Math.min(innerHeight*.48+110,innerHeight-200),45]:[110,85,135,450];
+  const padding=()=>{const small=window.innerWidth<=650,view=callbacks.current.layout,top=view==='workspace'?110:145,bottom=view==='sheet'||(view==='workspace'&&small)?Math.min(innerHeight*.5+110,innerHeight-top-100):155;return [top,small?55:80,Math.max(100,bottom),view==='workspace'&&!small?450:45]};
   if(cfg.jsKey){
    window._AMapSecurityConfig={serviceHost:location.origin+'/_AMapService'};
    if(!window.AMap)await script('https://webapi.amap.com/maps?v=2.0&key='+encodeURIComponent(cfg.jsKey));if(disposed)return;

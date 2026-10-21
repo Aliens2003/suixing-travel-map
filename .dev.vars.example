@@ -1,0 +1,5 @@
+AMAP_JS_KEY=
+AMAP_SECURITY_CODE=
+AMAP_WEB_KEY=
+# Only for initial local account creation. Use a random value of at least 32 characters.
+SETUP_TOKEN=

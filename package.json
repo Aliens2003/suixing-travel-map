@@ -11,7 +11,12 @@
     "build": "node scripts/run-framework.mjs build",
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "pwa:build": "node scripts/build-pwa.mjs",
+    "pwa:dev": "node node_modules/wrangler/bin/wrangler.js dev --config wrangler.pwa.jsonc --local --persist-to .wrangler/pwa-state --port 5174",
+    "pwa:deploy": "node scripts/deploy-pwa.mjs",
+    "pwa:check": "node scripts/check-offline-sync.mjs && node scripts/check-auth.mjs && node scripts/check-pwa.mjs",
+    "pwa:owner": "node --use-env-proxy scripts/setup-owner.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

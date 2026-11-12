@@ -21,6 +21,17 @@ assert.equal((await call('/api/state')).status,401);
 const logins=[];
 for(let i=0;i<2;i++){const r=await call('/api/auth/login',{site:'https://test.example',body:{username:'fixture',password}});assert.equal(r.status,200);logins.push((await r.json()).token)}
 const [a,b]=logins;assert.notEqual(a,b);
+const loginBody=JSON.stringify({username:'fixture',password});
+const web=await mf.dispatchFetch('https://test.example/api/auth/web-login',{method:'POST',headers:{Origin:'https://test.example','Content-Type':'application/json'},body:loginBody});
+assert.equal(web.status,200);assert.equal((await web.json()).token,undefined);
+const setCookie=web.headers.get('set-cookie');assert.match(setCookie,/HttpOnly; Secure; SameSite=Strict/);
+const cookie=setCookie.split(';')[0];
+const session=await mf.dispatchFetch('https://test.example/api/auth/session',{headers:{Cookie:cookie}});
+assert.equal(session.status,200);assert.equal((await session.json()).user.id,owner);
+assert.equal((await mf.dispatchFetch('https://test.example/api/auth/logout',{method:'POST',headers:{Cookie:cookie}})).status,403);
+assert.equal((await mf.dispatchFetch('https://test.example/api/auth/logout',{method:'POST',headers:{Origin:'https://test.example',Cookie:cookie}})).status,200);
+assert.equal((await mf.dispatchFetch('https://test.example/api/auth/session',{headers:{Cookie:cookie}})).status,401);
+
 const state=(await (await call('/api/state',{token:a})).json()).data;
 state.folders.push({id:'fixture-folder',name:'Tokyo',placeIds:[],routes:[]});
 assert.equal((await call('/api/state',{token:a,body:{data:state,revision:0}})).status,200);

@@ -4,7 +4,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 
 await build({configFile:'vite.pwa.config.ts'});
-const out=path.resolve('dist/pwa');
+const out=path.resolve('dist/cloudflare');
 const files=[];
 async function walk(dir,prefix='') {
   for(const f of await fs.readdir(dir,{withFileTypes:true})) {
@@ -26,5 +26,4 @@ await fs.writeFile(path.join(out,'precache.json'),JSON.stringify({version,assets
   '/vendor/leaflet.js','/vendor/leaflet.css',
   '/icons/icon-192.png','/icons/icon-512.png','/icons/maskable-512.png','/icons/apple-touch-icon.png',
 ]}));
-await fs.writeFile(path.join(out,'.nojekyll'),'');
-console.log(JSON.stringify({build:version,assets:assets.length,output:'dist/pwa'}));
+console.log(JSON.stringify({build:version,assets:assets.length,output:'dist/cloudflare'}));

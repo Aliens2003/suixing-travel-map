@@ -2,7 +2,7 @@ import {handleAuth,getSessionUser} from './auth';
 import {signInPage,signInScript} from './signin';
 import {geoapify} from '../lib/geoapify';
 import {stateSchema,initial} from '../lib/travel';
-interface Env{DB:D1Database;GEOAPIFY_API_KEY?:string;WEB_ORIGIN:string}
+interface Env{ASSETS:Fetcher;DB:D1Database;GEOAPIFY_API_KEY?:string;WEB_ORIGIN:string}
 const json=(body:unknown,status=200)=>Response.json(body,{status});
 async function state(request:Request,env:Env,userId:string) {
   if(request.method==='GET') {
@@ -27,7 +27,7 @@ async function state(request:Request,env:Env,userId:string) {
 
 async function handle(request:Request,env:Env){
  const path=new URL(request.url).pathname;
- if(path==='/api/auth/login'&&request.headers.get('Origin')!==new URL(request.url).origin)return json({error:'请通过独立登录窗口登录'},403);
+ if(['/api/auth/login','/api/auth/web-login'].includes(path)&&request.headers.get('Origin')!==new URL(request.url).origin)return json({error:'请通过独立登录窗口登录'},403);
  if(path.startsWith('/api/auth/'))return handleAuth(request,env);
  if(!['/api/state','/api/maps'].includes(path)&&!path.startsWith('/api/tile/'))return json({error:'接口不存在'},404);
  const user=await getSessionUser(request,env);
@@ -45,13 +45,21 @@ export default{async fetch(request:Request,env:Env){
  const url=new URL(request.url);
  if(request.method==='GET'&&url.pathname==='/signin')return new Response(signInPage,{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"}});
  if(request.method==='GET'&&url.pathname==='/signin.js')return new Response(signInScript(env.WEB_ORIGIN),{headers:{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+ if(!url.pathname.startsWith('/api/')){
+  if(!['GET','HEAD'].includes(request.method))return json({error:'请求方式不支持'},405);
+  const path=url.pathname;
+  if(!['/','/index.html','/manifest.webmanifest','/precache.json','/sw.js','/favicon.svg','/offline.html','/vendor/leaflet.js','/vendor/leaflet.css','/vendor/LEAFLET-LICENSE'].includes(path)&&!/^\/(?:icons\/[a-z0-9-]+\.png|assets\/[a-zA-Z0-9_.-]+\.(?:js|css))$/.test(path))return json({error:'资源不存在'},404);
+  return env.ASSETS.fetch(path==='/'?new Request(new URL('/index.html',url),request):request);
+ }
  const origin=request.headers.get('Origin');
- if(!origin||(origin!==env.WEB_ORIGIN&&(origin!==url.origin||url.pathname!=='/api/auth/login')))return json({error:'请求来源不匹配'},403);
+ const pages=origin===env.WEB_ORIGIN;
+ const sameOrigin=origin===url.origin;
+ if((origin&&!pages&&!sameOrigin)||(!origin&&!['GET','HEAD'].includes(request.method)))return json({error:'请求来源不匹配'},403);
  let response:Response;
  try{response=request.method==='OPTIONS'?new Response(null,{status:204}):await handle(request,env)}
  catch{response=json({error:'服务暂不可用，请稍后重试'},503)}
  const headers=new Headers(response.headers);
- headers.set('Access-Control-Allow-Origin',origin);
+ if(pages&&origin)headers.set('Access-Control-Allow-Origin',origin);
  headers.set('Access-Control-Allow-Methods','GET, POST, OPTIONS');
  headers.set('Access-Control-Allow-Headers','Authorization, Content-Type');
  headers.set('Access-Control-Max-Age','600');

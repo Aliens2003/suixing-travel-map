@@ -3,10 +3,10 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
 export default defineConfig({
-  base:'/suixing-travel-map/',
+  base:'/',
   root: path.resolve('standalone'),
   publicDir: path.resolve('public'),
   plugins: [react()],
   css: {postcss: path.resolve('.')},
-  build: {outDir: path.resolve('dist/pwa'), emptyOutDir: true},
+  build: {outDir: path.resolve('dist/cloudflare'), emptyOutDir: true},
 });

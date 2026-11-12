@@ -1,0 +1,20 @@
+{
+  "name": "suixing-international",
+  "main": "standalone/worker.ts",
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "WEB_ORIGIN": "https://aliens2003.github.io"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "suixing-travel-map",
+      "database_id": "00000000-0000-4000-8000-000000000000"
+    }
+  ]
+}
